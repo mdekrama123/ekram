@@ -1,0 +1,38 @@
+Python 3.13.3 (tags/v3.13.3:6280bb5, Apr  8 2025, 14:47:33) [MSC v.1943 64 bit (AMD64)] on win32
+Enter "help" below or click "Help" above for more information.
+>>> // Add at the top with other requires
+... const sanitize = require('sanitize-filename');
+... 
+... // ... (rest of the setup remains unchanged)
+... 
+... // Replace this in `/delete/:filename` route
+... app.get('/delete/:filename', authRequired, (req, res) => {
+...   const sanitized = sanitize(req.params.filename);
+...   const expectedPrefix = `${req.session.user}_`;
+...   if (!sanitized.startsWith(expectedPrefix)) {
+...     return res.status(403).send('Unauthorized access.');
+...   }
+... 
+...   const filePath = path.join(__dirname, 'uploads', sanitized);
+...   const trashPath = path.join(__dirname, 'trash', sanitized);
+...   if (fs.existsSync(filePath)) {
+...     fs.renameSync(filePath, trashPath);
+...   }
+...   res.redirect('/dashboard');
+... });
+... 
+... // Replace this in `/restore/:filename` route
+... app.get('/restore/:filename', authRequired, (req, res) => {
+...   const sanitized = sanitize(req.params.filename);
+...   const expectedPrefix = `${req.session.user}_`;
+...   if (!sanitized.startsWith(expectedPrefix)) {
+...     return res.status(403).send('Unauthorized access.');
+...   }
+... 
+...   const trashPath = path.join(__dirname, 'trash', sanitized);
+...   const filePath = path.join(__dirname, 'uploads', sanitized);
+...   if (fs.existsSync(trashPath)) {
+...     fs.renameSync(trashPath, filePath);
+...   }
+...   res.redirect('/trash');
+... });

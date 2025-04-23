@@ -1,0 +1,227 @@
+Python 3.13.3 (tags/v3.13.3:6280bb5, Apr  8 2025, 14:47:33) [MSC v.1943 64 bit (AMD64)] on win32
+Enter "help" below or click "Help" above for more information.
+>>> // Secure login + signup + personal file upload app using Node.js + Express + Password Reset + Phone field + File Recovery + Profile Update
+... 
+... const express = require('express');
+... const session = require('express-session');
+... const bcrypt = require('bcrypt');
+... const bodyParser = require('body-parser');
+... const multer = require('multer');
+... const path = require('path');
+... const fs = require('fs');
+... const crypto = require('crypto');
+... const nodemailer = require('nodemailer');
+... const app = express();
+... const port = 3000;
+... 
+... if (!fs.existsSync('./uploads')) fs.mkdirSync('./uploads');
+... if (!fs.existsSync('./trash')) fs.mkdirSync('./trash');
+... 
+... const storage = multer.diskStorage({
+...   destination: './uploads',
+...   filename: (req, file, cb) => {
+...     cb(null, `${req.session.user}_${Date.now()}_${file.originalname}`);
+...   }
+... });
+... const upload = multer({ storage });
+... 
+... const users = [];
+... const resetTokens = {}; 
+... 
+... (async () => {
+...   const username = 'admin';
+...   const password = 'StrongPass123';
+...   const passwordHash = await bcrypt.hash(password, 10);
+...   users.push({ username, passwordHash, email: 'admin@example.com', phone: '0000000000' });
+... })();
+... 
+app.use(bodyParser.urlencoded({ extended: false }));
+app.use(session({
+  secret: 'yourSecretKeyHere',
+  resave: false,
+  saveUninitialized: false,
+}));
+
+function authRequired(req, res, next) {
+  if (req.session && req.session.user) {
+    next();
+  } else {
+    res.redirect('/login');
+  }
+}
+
+const transporter = nodemailer.createTransport({
+  service: 'gmail',
+  auth: {
+    user: 'your_gmail_address@gmail.com',
+    pass: 'your_gmail_app_password'
+  }
+});
+
+app.get('/login', (req, res) => {
+  res.send(`<h2>Login</h2>
+    <form method="POST">
+      <input name="username" placeholder="Username" required /><br />
+      <input name="password" type="password" placeholder="Password" required /><br />
+      <button type="submit">Login</button>
+    </form>
+    <p>Don't have an account? <a href="/signup">Sign up</a></p>
+    <p><a href="/reset">Forgot password?</a></p>`);
+});
+
+app.post('/login', async (req, res) => {
+  const { username, password } = req.body;
+  const user = users.find(u => u.username === username);
+  if (user && await bcrypt.compare(password, user.passwordHash)) {
+    req.session.user = user.username;
+    res.redirect('/dashboard');
+  } else {
+    res.send('Invalid credentials. <a href="/login">Try again</a>');
+  }
+});
+
+app.get('/signup', (req, res) => {
+  res.send(`<h2>Sign Up</h2>
+    <form method="POST">
+      <input name="username" placeholder="Username" required /><br />
+      <input name="email" placeholder="Email" required /><br />
+      <input name="phone" placeholder="Phone Number" required /><br />
+      <input name="password" type="password" placeholder="Password" required /><br />
+      <button type="submit">Sign Up</button>
+    </form>`);
+});
+
+app.post('/signup', async (req, res) => {
+  const { username, email, phone, password } = req.body;
+  const userExists = users.find(u => u.username === username);
+  if (userExists) return res.send('User already exists. <a href="/signup">Try another</a>');
+  const passwordHash = await bcrypt.hash(password, 10);
+  users.push({ username, email, phone, passwordHash });
+  res.send('Signup successful! <a href="/login">Login</a>');
+});
+
+app.get('/dashboard', authRequired, (req, res) => {
+  const userFiles = fs.readdirSync('./uploads').filter(f => f.startsWith(req.session.user));
+  const fileLinks = userFiles.map(f => `<li>${f.split('_').slice(2).join('_')} - <a href="/uploads/${f}" download>Download</a> | <a href="/delete/${f}">Delete</a></li>`).join('');
+  res.send(`<h1>Welcome, ${req.session.user}</h1>
+    <p>Upload your private files below:</p>
+    <form action="/upload" method="POST" enctype="multipart/form-data">
+      <input type="file" name="file" required />
+      <button type="submit">Upload</button>
+    </form>
+    <h3>Your Files:</h3>
+    <ul>${fileLinks}</ul>
+    <p><a href="/trash">View Deleted Files</a></p>
+    <p><a href="/profile">Update Profile</a></p>
+    <a href="/logout">Logout</a>`);
+});
+
+app.post('/upload', authRequired, upload.single('file'), (req, res) => {
+  res.redirect('/dashboard');
+});
+
+app.get('/delete/:filename', authRequired, (req, res) => {
+  const filename = req.params.filename;
+  const filePath = path.join(__dirname, 'uploads', filename);
+  const trashPath = path.join(__dirname, 'trash', filename);
+  if (fs.existsSync(filePath)) {
+    fs.renameSync(filePath, trashPath);
+  }
+  res.redirect('/dashboard');
+});
+
+app.get('/trash', authRequired, (req, res) => {
+  const trashFiles = fs.readdirSync('./trash').filter(f => f.startsWith(req.session.user));
+  const fileLinks = trashFiles.map(f => `<li>${f.split('_').slice(2).join('_')} - <a href="/restore/${f}">Restore</a></li>`).join('');
+  res.send(`<h2>Deleted Files</h2><ul>${fileLinks}</ul><a href="/dashboard">Back</a>`);
+});
+
+app.get('/restore/:filename', authRequired, (req, res) => {
+  const filename = req.params.filename;
+  const trashPath = path.join(__dirname, 'trash', filename);
+  const filePath = path.join(__dirname, 'uploads', filename);
+  if (fs.existsSync(trashPath)) {
+    fs.renameSync(trashPath, filePath);
+  }
+  res.redirect('/trash');
+});
+
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+
+app.get('/logout', (req, res) => {
+  req.session.destroy(() => {
+    res.redirect('/login');
+  });
+});
+
+app.get('/profile', authRequired, (req, res) => {
+  const user = users.find(u => u.username === req.session.user);
+  res.send(`<h2>Update Profile</h2>
+    <form method="POST">
+      <input name="email" value="${user.email}" placeholder="Email" required /><br />
+      <input name="phone" value="${user.phone}" placeholder="Phone" required /><br />
+      <input name="password" type="password" placeholder="New Password (leave blank to keep current)" /><br />
+      <button type="submit">Update</button>
+    </form>
+    <p><a href="/dashboard">Back</a></p>`);
+});
+
+app.post('/profile', authRequired, async (req, res) => {
+  const user = users.find(u => u.username === req.session.user);
+  const { email, phone, password } = req.body;
+  user.email = email;
+  user.phone = phone;
+  if (password) {
+    user.passwordHash = await bcrypt.hash(password, 10);
+  }
+  res.send('Profile updated successfully. <a href="/dashboard">Go back</a>');
+});
+
+app.get('/reset', (req, res) => {
+  res.send(`<h2>Reset Password</h2>
+    <form method="POST">
+      <input name="email" placeholder="Your email" required /><br />
+      <button type="submit">Send reset link</button>
+    </form>`);
+});
+
+app.post('/reset', (req, res) => {
+  const { email } = req.body;
+  const user = users.find(u => u.email === email);
+  if (!user) return res.send('No user found with that email.');
+  const token = crypto.randomBytes(20).toString('hex');
+  resetTokens[token] = user.username;
+  const resetLink = `http://localhost:${port}/reset/${token}`;
+  transporter.sendMail({
+    from: 'no-reply@example.com',
+    to: email,
+    subject: 'Password Reset',
+    text: `Click here to reset your password: ${resetLink}`
+  });
+  res.send('Password reset link sent to your email.');
+});
+
+app.get('/reset/:token', (req, res) => {
+  const { token } = req.params;
+  if (!resetTokens[token]) return res.send('Invalid or expired token.');
+  res.send(`<h2>Set New Password</h2>
+    <form method="POST">
+      <input type="hidden" name="token" value="${token}" />
+      <input name="password" type="password" placeholder="New Password" required /><br />
+      <button type="submit">Reset Password</button>
+    </form>`);
+});
+
+app.post('/reset/:token', async (req, res) => {
+  const { token, password } = req.body;
+  const username = resetTokens[token];
+  if (!username) return res.send('Invalid or expired token.');
+  const user = users.find(u => u.username === username);
+  user.passwordHash = await bcrypt.hash(password, 10);
+  delete resetTokens[token];
+  res.send('Password successfully reset. <a href="/login">Login</a>');
+});
+
+app.listen(port, () => {
+  console.log(`Secure site with login, signup, file upload, recovery and password reset running at http://localhost:${port}`);
+});
